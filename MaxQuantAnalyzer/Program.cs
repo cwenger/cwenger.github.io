@@ -30,7 +30,8 @@ namespace MaxQuantAnalyzer
                 Dictionary<int, string> experiment_indexes = new Dictionary<int, string>();
                 for (int h = 0; h < header_fields.Length; h++)
                 {
-                    // make a list of each possible subset of runs keyed by column index
+                    // make a list of each possible subset of runs
+                    // also create a list of all experiments keyed by their column index
                     if (header_fields[h].StartsWith("Experiment"))
                     {
                         string experiment = header_fields[h].Substring("Experiment ".Length);
