@@ -18,8 +18,9 @@ namespace MaxQuantAnalyzer
             string peptides_filename = args[1];
             string[] protein_sequence_filenames = args[2].Split(';');
 
+            // read in peptides.txt and make a list of all the peptides containg the sequence and the experiments it's found in, keyed by peptide ID
             Dictionary<int, Tuple<string, HashSet<string>>> peptides = new Dictionary<int, Tuple<string, HashSet<string>>>();
-            HashSet<string> experiments = new HashSet<string>();
+            HashSet<string> subsets = new HashSet<string>();
             using (StreamReader peptides_file = new StreamReader(peptides_filename))
             {
                 string header = peptides_file.ReadLine();
@@ -29,17 +30,18 @@ namespace MaxQuantAnalyzer
                 Dictionary<int, string> experiment_indexes = new Dictionary<int, string>();
                 for (int h = 0; h < header_fields.Length; h++)
                 {
+                    // make a list of each possible subset of runs keyed by column index
                     if (header_fields[h].StartsWith("Experiment"))
                     {
                         string experiment = header_fields[h].Substring("Experiment ".Length);
                         Match match = EXPERIMENT_MATCH.Match(experiment);
-                        experiments.Add(match.Groups[1].Value);
-                        experiments.Add(match.Groups[2].Value);
-                        experiments.Add(match.Groups[3].Value);
-                        experiments.Add(match.Groups[1].Value + '_' + match.Groups[2].Value);
-                        experiments.Add(match.Groups[2].Value + '_' + match.Groups[3].Value);
-                        experiments.Add(match.Groups[1].Value + '_' + match.Groups[3].Value);
-                        experiments.Add(experiment);
+                        subsets.Add(match.Groups[1].Value);
+                        subsets.Add(match.Groups[2].Value);
+                        subsets.Add(match.Groups[3].Value);
+                        subsets.Add(match.Groups[1].Value + '_' + match.Groups[2].Value);
+                        subsets.Add(match.Groups[2].Value + '_' + match.Groups[3].Value);
+                        subsets.Add(match.Groups[1].Value + '_' + match.Groups[3].Value);
+                        subsets.Add(experiment);
                         experiment_indexes.Add(h, experiment);
                     }
                 }
@@ -58,6 +60,7 @@ namespace MaxQuantAnalyzer
                 }
             }
 
+            // read in all protein sequences, keyed by identifier
             Dictionary<string, string> protein_sequences = new Dictionary<string, string>();
             foreach (string protein_sequence_filename in protein_sequence_filenames)
             {
@@ -113,15 +116,15 @@ namespace MaxQuantAnalyzer
                     int seq_cov_index = Array.IndexOf(header_fields, "Sequence coverage [%]");
                     Dictionary<string, int> sc_indexes = new Dictionary<string, int>();
                     StringBuilder sb = new StringBuilder("id\tProtein ID\t");
-                    foreach (string experiment in experiments)
+                    foreach (string subset in subsets)
                     {
-                        int index = Array.IndexOf(header_fields, "Sequence coverage " + experiment + " [%]");
+                        int index = Array.IndexOf(header_fields, "Sequence coverage " + subset + " [%]");
                         if (index >= 0)
                         {
                             sb.Append("MaxQuant " + header_fields[index] + '\t');
-                            sc_indexes.Add(experiment, index);
+                            sc_indexes.Add(subset, index);
                         }
-                        sb.Append("CDW Sequence coverage " + experiment + " [%]\t");
+                        sb.Append("CDW Sequence coverage " + subset + " [%]\t");
                     }
                     sb.Append("MaxQuant Sequence coverage [%]\tCDW Sequence coverage [%]");
                     proteins_out_file.WriteLine(sb.ToString());
@@ -137,38 +140,43 @@ namespace MaxQuantAnalyzer
                         string[] maj_prot_ids = fields[maj_prot_ids_index].Split(';');
                         string maj_prot_id = maj_prot_ids[0];
 
+                        // get the protein sequence of the first major protein (ignore if reversed/decoy or contaminant)
                         string maj_prot_seq = null;
                         if (!maj_prot_id.StartsWith("REV") && !maj_prot_id.StartsWith("CON"))
                             maj_prot_seq = protein_sequences[maj_prot_id];
 
                         sb = new StringBuilder(fields[id_index] + '\t' + maj_prot_id + '\t');
-                        foreach (string experiment in experiments)
+                        foreach (string subset in subsets)
                         {
-                            string[] exps = experiment.Split('_');
+                            string[] subset_components = subset.Split('_');
 
                             double seq_cov = double.NaN;
                             if (maj_prot_seq != null)
                             {
+                                // for every peptide associated with the protein, figure out if it was found in the current subset of runs
+                                // if so, find every instance of it in the parent protein sequence
+                                // mark those residues as covered
+                                // after this is done for all peptides, calculate sequence coverage
                                 HashSet<int> residues = new HashSet<int>();
                                 foreach (int peptide_id in peptide_ids)
                                 {
                                     Tuple<string, HashSet<string>> peptide = peptides[peptide_id];
 
-                                    bool in_exp = false;
+                                    bool in_subset = false;
                                     foreach (string experiments_found_in in peptide.Item2)
                                     {
-                                        if (Array.TrueForAll(exps, x => experiments_found_in.Contains(x)))
+                                        if (Array.TrueForAll(subset_components, x => experiments_found_in.Contains(x)))
                                         {
-                                            in_exp = true;
+                                            in_subset = true;
                                             break;
                                         }
                                     }
 
-                                    if (in_exp)
+                                    if (in_subset)
                                     {
                                         MatchCollection matches = Regex.Matches(maj_prot_seq, peptide.Item1);
                                         if (matches.Count == 0)
-                                            throw new Exception();
+                                            throw new Exception("Peptide not found in parent protein.");
 
                                         foreach (Match match in matches)
                                             for (int r = match.Index + 1; r < match.Index + 1 + match.Length; r++)
@@ -178,12 +186,13 @@ namespace MaxQuantAnalyzer
                                 seq_cov = (double)residues.Count / length * 100;
                             }
                             int index;
-                            if (sc_indexes.TryGetValue(experiment, out index))
+                            if (sc_indexes.TryGetValue(subset, out index))
                                 sb.Append(fields[index] + '\t' + seq_cov.ToString("F1") + '\t');
                             else
                                 sb.Append(seq_cov.ToString("F1") + '\t');
                         }
 
+                        // calculate overall sequence
                         double overall_seq_cov = double.NaN;
                         if (maj_prot_seq != null)
                         {
