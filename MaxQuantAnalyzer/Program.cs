@@ -18,8 +18,8 @@ namespace MaxQuantAnalyzer
             string peptides_filename = args[1];
             string[] protein_sequence_filenames = args[2].Split(';');
 
-            // read in peptides.txt and make a list of all the peptides containg the sequence and the experiments it's found in, keyed by peptide ID
-            Dictionary<int, Tuple<string, HashSet<string>>> peptides = new Dictionary<int, Tuple<string, HashSet<string>>>();
+            // read in peptides.txt and make a list of all the peptides containg the sequence and the number of times it's found in each experiment, keyed by peptide ID
+            Dictionary<int, Tuple<string, Dictionary<string, int>>> peptides = new Dictionary<int, Tuple<string, Dictionary<string, int>>>();
             HashSet<string> subsets = new HashSet<string>();
             using (StreamReader peptides_file = new StreamReader(peptides_filename))
             {
@@ -52,12 +52,15 @@ namespace MaxQuantAnalyzer
                     string line = peptides_file.ReadLine();
                     string[] fields = line.Split('\t');
 
-                    HashSet<string> experiments_found_in = new HashSet<string>();
+                    Dictionary<string, int> psms_per_exp = new Dictionary<string, int>();
                     foreach (KeyValuePair<int, string> kvp in experiment_indexes)
-                        if (!string.IsNullOrWhiteSpace(fields[kvp.Key]))
-                            experiments_found_in.Add(kvp.Value);
+                    {
+                        int psms;
+                        int.TryParse(fields[kvp.Key], out psms);
+                        psms_per_exp.Add(kvp.Value, psms);
+                    }
 
-                    peptides.Add(int.Parse(fields[id_index]), new Tuple<string, HashSet<string>>(fields[seq_index], experiments_found_in));
+                    peptides.Add(int.Parse(fields[id_index]), new Tuple<string, Dictionary<string, int>>(fields[seq_index], psms_per_exp));
                 }
             }
 
@@ -104,116 +107,160 @@ namespace MaxQuantAnalyzer
 
             using (StreamReader proteins_file = new StreamReader(proteins_filename))
             {
+                // sequence coverage output
                 using (StreamWriter proteins_out_file = new StreamWriter(Path.Combine(Path.GetDirectoryName(proteins_filename), Path.GetFileNameWithoutExtension(proteins_filename) + ".out" + Path.GetExtension(proteins_filename))))
                 {
                     proteins_out_file.AutoFlush = true;
 
-                    string header = proteins_file.ReadLine();
-                    string[] header_fields = header.Split('\t');
-                    int id_index = Array.IndexOf(header_fields, "id");
-                    int length_index = Array.IndexOf(header_fields, "Sequence length");
-                    int peptide_ids_index = Array.IndexOf(header_fields, "Peptide IDs");
-                    int maj_prot_ids_index = Array.IndexOf(header_fields, "Majority protein IDs");
-                    int seq_cov_index = Array.IndexOf(header_fields, "Sequence coverage [%]");
-                    Dictionary<string, int> sc_indexes = new Dictionary<string, int>();
-                    StringBuilder sb = new StringBuilder("id\tProtein ID\t");
-                    foreach (string subset in subsets)
+                    // PSMs and unique peptide output
+                    using (StreamWriter proteins_out2_file = new StreamWriter(Path.Combine(Path.GetDirectoryName(proteins_filename), Path.GetFileNameWithoutExtension(proteins_filename) + ".out2" + Path.GetExtension(proteins_filename))))
                     {
-                        int index = Array.IndexOf(header_fields, "Sequence coverage " + subset + " [%]");
-                        if (index >= 0)
-                        {
-                            sb.Append("MaxQuant " + header_fields[index] + '\t');
-                            sc_indexes.Add(subset, index);
-                        }
-                        sb.Append("CDW Sequence coverage " + subset + " [%]\t");
-                    }
-                    sb.Append("MaxQuant Sequence coverage [%]\tCDW Sequence coverage [%]");
-                    proteins_out_file.WriteLine(sb.ToString());
+                        proteins_out2_file.AutoFlush = true;
 
-                    while (!proteins_file.EndOfStream)
-                    {
-                        string line = proteins_file.ReadLine();
-                        string[] fields = line.Split('\t');
-
-                        int id = int.Parse(fields[id_index]);
-                        int length = int.Parse(fields[length_index]);
-                        int[] peptide_ids = Array.ConvertAll(fields[peptide_ids_index].Split(';'), x => int.Parse(x));
-                        string[] maj_prot_ids = fields[maj_prot_ids_index].Split(';');
-                        string maj_prot_id = maj_prot_ids[0];
-
-                        // get the protein sequence of the first major protein (ignore if reversed/decoy or contaminant)
-                        string maj_prot_seq = null;
-                        if (!maj_prot_id.StartsWith("REV") && !maj_prot_id.StartsWith("CON"))
-                            maj_prot_seq = protein_sequences[maj_prot_id];
-
-                        sb = new StringBuilder(fields[id_index] + '\t' + maj_prot_id + '\t');
+                        string header = proteins_file.ReadLine();
+                        string[] header_fields = header.Split('\t');
+                        int id_index = Array.IndexOf(header_fields, "id");
+                        int length_index = Array.IndexOf(header_fields, "Sequence length");
+                        int peptide_ids_index = Array.IndexOf(header_fields, "Peptide IDs");
+                        int maj_prot_ids_index = Array.IndexOf(header_fields, "Majority protein IDs");
+                        int seq_cov_index = Array.IndexOf(header_fields, "Sequence coverage [%]");
+                        int evidence_ids_index = Array.IndexOf(header_fields, "Evidence IDs");
+                        Dictionary<string, int> sc_indexes = new Dictionary<string, int>();
+                        StringBuilder sb = new StringBuilder("id\tProtein ID\t");
                         foreach (string subset in subsets)
                         {
-                            string[] subset_components = subset.Split('_');
+                            int index = Array.IndexOf(header_fields, "Sequence coverage " + subset + " [%]");
+                            // if MaxQuant reported sequence coverage for this subset, add a column header to the output and save the column index
+                            if (index >= 0)
+                            {
+                                sb.Append("MaxQuant " + header_fields[index] + '\t');
+                                sc_indexes.Add(subset, index);
+                            }
+                            sb.Append("CDW Sequence coverage " + subset + " [%]\t");
+                        }
+                        sb.Append("MaxQuant Sequence coverage [%]\tCDW Sequence coverage [%]");
+                        proteins_out_file.WriteLine(sb.ToString());
+                        Dictionary<string, int> distinct_peptides_indexes = new Dictionary<string, int>();
+                        StringBuilder sb2 = new StringBuilder("id\tProtein ID\t");
+                        foreach (string subset in subsets)
+                        {
+                            // MaxQuant never reports a number of PSMs on a per-experiment basis so only output our results
+                            sb2.Append("CDW PSMs " + subset + '\t');
+                            int index = Array.IndexOf(header_fields, "Peptides " + subset);
+                            // if MaxQuant reported a number of distinct peptides for this subset, add a column header to the output and save the column index
+                            if (index >= 0)
+                            {
+                                sb2.Append("MaxQuant distinct peptides " + subset + '\t');
+                                distinct_peptides_indexes.Add(subset, index);
+                            }
+                            sb2.Append("CDW distinct peptides " + subset + '\t');
+                        }
+                        sb2.Append("MaxQuant PSMs\tCDW PSMs\tMaxQuant distinct peptides\tCDW distinct peptides");
+                        proteins_out2_file.WriteLine(sb2.ToString());
 
-                            double seq_cov = double.NaN;
+                        while (!proteins_file.EndOfStream)
+                        {
+                            string line = proteins_file.ReadLine();
+                            string[] fields = line.Split('\t');
+
+                            int id = int.Parse(fields[id_index]);
+                            int length = int.Parse(fields[length_index]);
+                            int[] peptide_ids = Array.ConvertAll(fields[peptide_ids_index].Split(';'), x => int.Parse(x));
+                            string[] maj_prot_ids = fields[maj_prot_ids_index].Split(';');
+                            string maj_prot_id = maj_prot_ids[0];
+
+                            // get the protein sequence of the first major protein (ignore if reversed/decoy or contaminant)
+                            string maj_prot_seq = null;
+                            if (!maj_prot_id.StartsWith("REV") && !maj_prot_id.StartsWith("CON"))
+                                maj_prot_seq = protein_sequences[maj_prot_id];
+
+                            // for each subset of experiments, calculate sequence coverage and number of PSMs and distinct peptides for each protein group
+                            sb = new StringBuilder(fields[id_index] + '\t' + maj_prot_id + '\t');
+                            sb2 = new StringBuilder(fields[id_index] + '\t' + maj_prot_id + '\t');
+                            foreach (string subset in subsets)
+                            {
+                                string[] subset_components = subset.Split('_');
+
+                                double seq_cov = double.NaN;
+                                int psms = 0;
+                                int distinct_peptides = 0;
+                                if (maj_prot_seq != null)
+                                {
+                                    // for every peptide associated with the protein, figure out if it was found in the current subset of runs
+                                    // if so, find every instance of it in the parent protein sequence
+                                    // mark those residues as covered
+                                    // after this is done for all peptides, calculate sequence coverage
+                                    HashSet<int> residues = new HashSet<int>();
+                                    foreach (int peptide_id in peptide_ids)
+                                    {
+                                        Tuple<string, Dictionary<string, int>> peptide = peptides[peptide_id];
+
+                                        bool in_subset = false;
+                                        foreach (KeyValuePair<string, int> kvp in peptide.Item2)
+                                        {
+                                            if (kvp.Value > 0)
+                                                if (Array.TrueForAll(subset_components, x => kvp.Value == 0 || kvp.Key.Contains(x)))
+                                                {
+                                                    in_subset = true;
+                                                    psms += kvp.Value;
+                                                }
+                                        }
+
+                                        if (in_subset)
+                                        {
+                                            MatchCollection matches = Regex.Matches(maj_prot_seq, peptide.Item1);
+                                            if (matches.Count == 0)
+                                                throw new Exception("Peptide not found in parent protein.");
+
+                                            foreach (Match match in matches)
+                                                for (int r = match.Index + 1; r < match.Index + 1 + match.Length; r++)
+                                                    residues.Add(r);
+
+                                            distinct_peptides++;
+                                        }
+                                    }
+                                    seq_cov = (double)residues.Count / length * 100;
+                                }
+                                int index;
+                                if (sc_indexes.TryGetValue(subset, out index))
+                                    sb.Append(fields[index] + '\t');
+                                sb.Append(seq_cov.ToString("F1") + '\t');
+                                sb2.Append(psms.ToString() + '\t');
+                                if (distinct_peptides_indexes.TryGetValue(subset, out index))
+                                    sb2.Append(fields[index] + '\t');
+                                sb2.Append(distinct_peptides.ToString() + '\t');
+                            }
+
+                            // calculate overall sequence coverage and number of PSMs and distinct peptides for each protein group
+                            double overall_seq_cov = double.NaN;
+                            int overall_psms = 0;
+                            int overall_distinct_peptides = 0;
                             if (maj_prot_seq != null)
                             {
-                                // for every peptide associated with the protein, figure out if it was found in the current subset of runs
-                                // if so, find every instance of it in the parent protein sequence
-                                // mark those residues as covered
-                                // after this is done for all peptides, calculate sequence coverage
                                 HashSet<int> residues = new HashSet<int>();
                                 foreach (int peptide_id in peptide_ids)
                                 {
-                                    Tuple<string, HashSet<string>> peptide = peptides[peptide_id];
+                                    Tuple<string, Dictionary<string, int>> peptide = peptides[peptide_id];
 
-                                    bool in_subset = false;
-                                    foreach (string experiments_found_in in peptide.Item2)
-                                    {
-                                        if (Array.TrueForAll(subset_components, x => experiments_found_in.Contains(x)))
-                                        {
-                                            in_subset = true;
-                                            break;
-                                        }
-                                    }
+                                    MatchCollection matches = Regex.Matches(maj_prot_seq, peptide.Item1);
+                                    if (matches.Count == 0)
+                                        throw new Exception("Peptide not found in parent protein.");
 
-                                    if (in_subset)
-                                    {
-                                        MatchCollection matches = Regex.Matches(maj_prot_seq, peptide.Item1);
-                                        if (matches.Count == 0)
-                                            throw new Exception("Peptide not found in parent protein.");
+                                    foreach (Match match in matches)
+                                        for (int r = match.Index + 1; r < match.Index + 1 + match.Length; r++)
+                                            residues.Add(r);
 
-                                        foreach (Match match in matches)
-                                            for (int r = match.Index + 1; r < match.Index + 1 + match.Length; r++)
-                                                residues.Add(r);
-                                    }
+                                    foreach (KeyValuePair<string, int> kvp in peptide.Item2)
+                                        overall_psms += kvp.Value;
                                 }
-                                seq_cov = (double)residues.Count / length * 100;
+                                overall_seq_cov = (double)residues.Count / length * 100;
+                                overall_distinct_peptides += peptide_ids.Length;
                             }
-                            int index;
-                            if (sc_indexes.TryGetValue(subset, out index))
-                                sb.Append(fields[index] + '\t' + seq_cov.ToString("F1") + '\t');
-                            else
-                                sb.Append(seq_cov.ToString("F1") + '\t');
+                            sb.Append(fields[seq_cov_index] + '\t' + overall_seq_cov.ToString("F1"));
+                            sb2.Append(fields[evidence_ids_index].Split(';').Length.ToString() + '\t' + overall_psms.ToString() + '\t' + peptide_ids.Length.ToString() + '\t' + overall_distinct_peptides.ToString());
+                            proteins_out_file.WriteLine(sb.ToString());
+                            proteins_out2_file.WriteLine(sb2.ToString());
                         }
-
-                        // calculate overall sequence
-                        double overall_seq_cov = double.NaN;
-                        if (maj_prot_seq != null)
-                        {
-                            HashSet<int> residues = new HashSet<int>();
-                            foreach (int peptide_id in peptide_ids)
-                            {
-                                Tuple<string, HashSet<string>> peptide = peptides[peptide_id];
-
-                                MatchCollection matches = Regex.Matches(maj_prot_seq, peptide.Item1);
-                                if (matches.Count == 0)
-                                    throw new Exception();
-
-                                foreach (Match match in matches)
-                                    for (int r = match.Index + 1; r < match.Index + 1 + match.Length; r++)
-                                        residues.Add(r);
-                            }
-                            overall_seq_cov = (double)residues.Count / length * 100;
-                        }
-                        sb.Append(fields[seq_cov_index] + '\t' + overall_seq_cov.ToString("F1"));
-                        proteins_out_file.WriteLine(sb.ToString());
                     }
                 }
             }
