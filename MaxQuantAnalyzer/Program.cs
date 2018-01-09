@@ -10,6 +10,8 @@ namespace MaxQuantAnalyzer
     {
         static readonly Regex EXPERIMENT_MATCH = new Regex(@"(.+)_(.+)_(.+)");
         static readonly Regex SP_TR_REGEX = new Regex(@"(?:(?:sp|tr)\|(.+)\|)");
+        static readonly Regex TRANSLATION_REGEX = new Regex(@"(.+) (frame:\d+) (ORF:\d+)");
+        static readonly Regex ASSEMBLY_REGEX = new Regex(@"(.+) (\[\d+) - (\d+\])");
         static readonly Regex OTHER_REGEX = new Regex(@"(.+?) ");
 
         static void Main(string[] args)
@@ -17,6 +19,11 @@ namespace MaxQuantAnalyzer
             string proteins_filename = args[0];
             string peptides_filename = args[1];
             string[] protein_sequence_filenames = args[2].Split(';');
+            bool exclude_assembly_range;
+            if (args.Length >= 4)
+                bool.TryParse(args[3], out exclude_assembly_range);
+            else
+                exclude_assembly_range = false;
 
             // read in peptides.txt and make a list of all the peptides containg the sequence and the number of times it's found in each experiment, keyed by peptide ID
             Dictionary<int, Tuple<string, Dictionary<string, int>>> peptides = new Dictionary<int, Tuple<string, Dictionary<string, int>>>();
@@ -84,9 +91,23 @@ namespace MaxQuantAnalyzer
                                     description = sr_tr_match.Groups[1].Value;
                                 else
                                 {
-                                    Match other_match = OTHER_REGEX.Match(description);
-                                    if (other_match.Success)
-                                        description = other_match.Groups[1].Value;
+                                    Match translation_match = TRANSLATION_REGEX.Match(description);
+                                    if (translation_match.Success)
+                                        description = translation_match.Groups[1].Value + translation_match.Groups[2].Value + translation_match.Groups[3].Value;
+                                    else
+                                    {
+                                        Match assembly_match = ASSEMBLY_REGEX.Match(description);
+                                        if (assembly_match.Success)
+                                        {
+                                            description = assembly_match.Groups[1].Value;
+                                            if (!exclude_assembly_range)
+                                                description += assembly_match.Groups[2].Value + '-' + assembly_match.Groups[3].Value;
+                                        }
+
+                                        Match other_match = OTHER_REGEX.Match(description);
+                                        if (other_match.Success)
+                                            description = other_match.Groups[1].Value;
+                                    }
                                 }
                                 protein_sequences.Add(description, sequence);
                                 sequence = null;
