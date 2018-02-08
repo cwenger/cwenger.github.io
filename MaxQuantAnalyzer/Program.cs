@@ -24,6 +24,16 @@ namespace MaxQuantAnalyzer
                 bool.TryParse(args[3], out exclude_assembly_range);
             else
                 exclude_assembly_range = false;
+            bool exclude_special_proteins;
+            if (args.Length >= 5)
+                bool.TryParse(args[4], out exclude_special_proteins);
+            else
+                exclude_special_proteins = false;
+            bool exclude_nomsms_peptides;
+            if (args.Length >= 6)
+                bool.TryParse(args[5], out exclude_nomsms_peptides);
+            else
+                exclude_nomsms_peptides = false;
 
             // read in peptides.txt and make a list of all the peptides containg the sequence and the number of times it's found in each experiment, keyed by peptide ID
             Dictionary<int, Tuple<string, Dictionary<string, int>>> peptides = new Dictionary<int, Tuple<string, Dictionary<string, int>>>();
@@ -34,6 +44,7 @@ namespace MaxQuantAnalyzer
                 string[] header_fields = header.Split('\t');
                 int id_index = Array.IndexOf(header_fields, "id");
                 int seq_index = Array.IndexOf(header_fields, "Sequence");
+                int best_msms_index = Array.IndexOf(header_fields, "Best MS/MS");
                 Dictionary<int, string> experiment_indexes = new Dictionary<int, string>();
                 for (int h = 0; h < header_fields.Length; h++)
                 {
@@ -58,6 +69,9 @@ namespace MaxQuantAnalyzer
                 {
                     string line = peptides_file.ReadLine();
                     string[] fields = line.Split('\t');
+
+                    if (exclude_nomsms_peptides && string.IsNullOrWhiteSpace(fields[best_msms_index]))
+                        continue;
 
                     Dictionary<string, int> psms_per_exp = new Dictionary<string, int>();
                     foreach (KeyValuePair<int, string> kvp in experiment_indexes)
@@ -151,6 +165,9 @@ namespace MaxQuantAnalyzer
                             int maj_prot_ids_index = Array.IndexOf(header_fields, "Majority protein IDs");
                             int seq_cov_index = Array.IndexOf(header_fields, "Sequence coverage [%]");
                             int evidence_ids_index = Array.IndexOf(header_fields, "Evidence IDs");
+                            int site_only_index = Array.IndexOf(header_fields, "Only identified by site");
+                            int reverse_index = Array.IndexOf(header_fields, "Reverse");
+                            int contaminant_index = Array.IndexOf(header_fields, "Potential contaminant");
                             Dictionary<string, int> sc_indexes = new Dictionary<string, int>();
                             StringBuilder sb = new StringBuilder("id\tProtein ID\t");
                             foreach (string subset in subsets)
@@ -196,6 +213,9 @@ namespace MaxQuantAnalyzer
                                 string[] maj_prot_ids = fields[maj_prot_ids_index].Split(';');
                                 string maj_prot_id = maj_prot_ids[0];
 
+                                if (exclude_special_proteins && (!string.IsNullOrWhiteSpace(fields[site_only_index]) || !string.IsNullOrWhiteSpace(fields[reverse_index]) || !string.IsNullOrWhiteSpace(fields[contaminant_index])))
+                                    continue;
+
                                 // get the protein sequence of the first major protein (ignore if reversed/decoy or contaminant)
                                 string maj_prot_seq = null;
                                 if (!maj_prot_id.StartsWith("REV") && !maj_prot_id.StartsWith("CON"))
@@ -220,7 +240,9 @@ namespace MaxQuantAnalyzer
                                         HashSet<int> residues = new HashSet<int>();
                                         foreach (int peptide_id in peptide_ids)
                                         {
-                                            Tuple<string, Dictionary<string, int>> peptide = peptides[peptide_id];
+                                            Tuple<string, Dictionary<string, int>> peptide;
+                                            if (!peptides.TryGetValue(peptide_id, out peptide))
+                                                continue;
 
                                             bool in_subset = false;
                                             foreach (KeyValuePair<string, int> kvp in peptide.Item2)
@@ -269,7 +291,9 @@ namespace MaxQuantAnalyzer
                                 {
                                     foreach (int peptide_id in peptide_ids)
                                     {
-                                        Tuple<string, Dictionary<string, int>> peptide = peptides[peptide_id];
+                                        Tuple<string, Dictionary<string, int>> peptide;
+                                        if (!peptides.TryGetValue(peptide_id, out peptide))
+                                            continue;
 
                                         bool found_with_trypsin = false;
                                         bool found_without_trypsin = false;
