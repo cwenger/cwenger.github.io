@@ -19,6 +19,7 @@ namespace MaxQuantAnalyzer2
 
         const AnalysisType ANALYSIS_TYPE = AnalysisType.ConserveGroups;
         const bool REMOVE_ISOFORMS_WITHOUT_UNIQUE_PEPTIDES = false;
+        const bool REMOVE_EACH_GROUP_SEQUENTIALLY_TEST = false;
 
         static void Main(string[] args)
         {
@@ -262,10 +263,13 @@ namespace MaxQuantAnalyzer2
                     i++;
             }
 
-            HashSet<int> peptide_ids_from_minimal_protein_groups = new HashSet<int>(minimal_protein_groups.SelectMany(x => x.Value.Select(y => y.Id)));
-            foreach (KeyValuePair<List<string>, List<Peptide>> protein_group in minimal_protein_groups)
-                if (new HashSet<int>(minimal_protein_groups.Except(new[] { protein_group }).SelectMany(x => x.Value.Select(y => y.Id))).SetEquals(peptide_ids_from_minimal_protein_groups))
-                    throw new Exception();
+            if (REMOVE_EACH_GROUP_SEQUENTIALLY_TEST)
+            {
+                HashSet<int> peptide_ids_from_minimal_protein_groups = new HashSet<int>(minimal_protein_groups.SelectMany(x => x.Value.Select(y => y.Id)));
+                foreach (KeyValuePair<List<string>, List<Peptide>> protein_group in minimal_protein_groups)
+                    if (new HashSet<int>(minimal_protein_groups.Except(new[] { protein_group }).SelectMany(x => x.Value.Select(y => y.Id))).SetEquals(peptide_ids_from_minimal_protein_groups))
+                        throw new Exception();
+            }
 
             return minimal_protein_groups;
         }
