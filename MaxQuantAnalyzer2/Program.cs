@@ -72,15 +72,16 @@ namespace MaxQuantAnalyzer2
                     if (exclude_nomsms_peptides && string.IsNullOrWhiteSpace(fields[best_msms_index]))
                         continue;
 
-                    Dictionary<string, int> psms_per_exp = new Dictionary<string, int>();
+                    HashSet<string> experiments = new HashSet<string>();
                     foreach (KeyValuePair<int, string> kvp in experiment_indexes)
                     {
                         int psms;
                         int.TryParse(fields[kvp.Key], out psms);
-                        psms_per_exp.Add(kvp.Value, psms);
+                        if(psms > 0)
+                            experiments.Add(kvp.Value);
                     }
 
-                    Peptide peptide = new Peptide(int.Parse(fields[id_index]), double.Parse(fields[score_index]), psms_per_exp);
+                    Peptide peptide = new Peptide(int.Parse(fields[id_index]), double.Parse(fields[score_index]), experiments);
                     all_peptides.Add(peptide);
                     foreach (string isoform in fields[isoforms_index].Split(';'))
                     {
@@ -122,8 +123,8 @@ namespace MaxQuantAnalyzer2
                     foreach (Peptide peptide in all_peptides)
                     {
                         bool in_subset = false;
-                        foreach (KeyValuePair<string, int> kvp in peptide.ExperimentCounts)
-                            if (kvp.Value > 0 && Array.TrueForAll(subset_components, x => kvp.Key.Contains(x)))
+                        foreach (string experiment in peptide.Experiments)
+                            if (Array.TrueForAll(subset_components, x => experiment.Contains(x)))
                             {
                                 in_subset = true;
                                 break;
@@ -142,8 +143,8 @@ namespace MaxQuantAnalyzer2
                     foreach (Peptide peptide in all_peptides)
                     {
                         bool in_subset = false;
-                        foreach (KeyValuePair<string, int> kvp in peptide.ExperimentCounts)
-                            if (kvp.Value > 0 && Array.TrueForAll(subset_components, x => kvp.Key.Contains(x)))
+                        foreach (string experiment in peptide.Experiments)
+                            if (Array.TrueForAll(subset_components, x => experiment.Contains(x)))
                             {
                                 in_subset = true;
                                 break;
@@ -279,13 +280,13 @@ namespace MaxQuantAnalyzer2
     {
         public int Id { get; private set; }
         public double Score { get; private set; }
-        public Dictionary<string, int> ExperimentCounts { get; private set; }
+        public HashSet<string> Experiments { get; private set; }
 
-        public Peptide(int id, double score, Dictionary<string, int> experimentCounts)
+        public Peptide(int id, double score, HashSet<string> experiments)
         {
             Id = id;
             Score = score;
-            ExperimentCounts = experimentCounts;
+            Experiments = experiments;
         }
     }
 }
