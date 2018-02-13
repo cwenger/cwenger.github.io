@@ -204,30 +204,25 @@ namespace MaxQuantAnalyzer2
 
             // merge indistinguishable proteins into groups and remove subset protein groups
             int i = 0;
-            while (i < minimal_protein_groups.Count)
+            while (i < minimal_protein_groups.Count - 1)
             {
                 HashSet<int> first_protein_group_peptide_ids = new HashSet<int>(minimal_protein_groups[i].Value.Select(x => x.Id));
                 bool remove_first = false;
-                int j = 0;
+                int j = i + 1;
                 while (j < minimal_protein_groups.Count)
                 {
-                    if (j != i)
+                    HashSet<int> second_protein_group_peptide_ids = new HashSet<int>(minimal_protein_groups[j].Value.Select(x => x.Id));
+                    if (second_protein_group_peptide_ids.SetEquals(first_protein_group_peptide_ids))
                     {
-                        HashSet<int> second_protein_group_peptide_ids = new HashSet<int>(minimal_protein_groups[j].Value.Select(x => x.Id));
-                        if (second_protein_group_peptide_ids.SetEquals(first_protein_group_peptide_ids))
-                        {
-                            minimal_protein_groups[i].Key.AddRange(minimal_protein_groups[j].Key);
-                            minimal_protein_groups.RemoveAt(j);
-                        }
-                        else if (second_protein_group_peptide_ids.IsSubsetOf(first_protein_group_peptide_ids))
-                            minimal_protein_groups.RemoveAt(j);
-                        else if (first_protein_group_peptide_ids.IsSubsetOf(second_protein_group_peptide_ids))
-                        {
-                            remove_first = true;
-                            break;
-                        }
-                        else
-                            j++;
+                        minimal_protein_groups[i].Key.AddRange(minimal_protein_groups[j].Key);
+                        minimal_protein_groups.RemoveAt(j);
+                    }
+                    else if (second_protein_group_peptide_ids.IsSubsetOf(first_protein_group_peptide_ids))
+                        minimal_protein_groups.RemoveAt(j);
+                    else if (first_protein_group_peptide_ids.IsSubsetOf(second_protein_group_peptide_ids))
+                    {
+                        remove_first = true;
+                        break;
                     }
                     else
                         j++;
