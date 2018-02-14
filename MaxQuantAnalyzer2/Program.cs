@@ -77,7 +77,7 @@ namespace MaxQuantAnalyzer2
                     {
                         int psms;
                         int.TryParse(fields[kvp.Key], out psms);
-                        if(psms > 0)
+                        if (psms > 0)
                             experiments.Add(kvp.Value);
                     }
 
@@ -130,7 +130,14 @@ namespace MaxQuantAnalyzer2
                                 break;
                             }
                         if (!in_subset)
-                            subset_isoforms.ForEach(x => x.Value.Remove(peptide));  // this peptide isn't found in the current subset; remove it from all isoforms
+                            foreach (KeyValuePair<List<string>, List<Peptide>> kvp in subset_minimal_isoforms)
+                                foreach (Peptide peptide2 in kvp.Value)
+                                    if (peptide2 == peptide)
+                                    {
+                                        // this peptide isn't found in the current subset; remove it from all isoforms
+                                        kvp.Value.Remove(peptide2);
+                                        break;
+                                    }
                     }
                     subset_isoforms.RemoveAll(x => x.Value.Count == 0);  // remove all isoforms that no longer contain any peptides from this subset
                     subset_minimal_isoforms = FindMinimalProteinGroups(subset_isoforms);
@@ -150,7 +157,14 @@ namespace MaxQuantAnalyzer2
                                 break;
                             }
                         if (!in_subset)
-                            subset_minimal_isoforms.ForEach(x => x.Value.Remove(peptide));  // this peptide isn't found in the current subset; remove it from all isoforms
+                            foreach (KeyValuePair<List<string>, List<Peptide>> kvp in subset_minimal_isoforms)
+                                foreach (Peptide peptide2 in kvp.Value)
+                                    if (peptide2 == peptide)
+                                    {
+                                        // this peptide isn't found in the current subset; remove it from all isoforms
+                                        kvp.Value.Remove(peptide2);
+                                        break;
+                                    }
                     }
                     subset_minimal_isoforms.RemoveAll(x => x.Value.Count == 0);  // remove all isoforms that no longer contain any peptides from this subset
                     if (REMOVE_ISOFORMS_WITHOUT_UNIQUE_PEPTIDES)
