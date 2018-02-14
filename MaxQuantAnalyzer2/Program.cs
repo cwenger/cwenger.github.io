@@ -99,7 +99,7 @@ namespace MaxQuantAnalyzer2
             }
 
             List<KeyValuePair<List<string>, List<Peptide>>> overall_minimal_isoforms = FindMinimalProteinGroups(isoforms);
-            Console.WriteLine("overall" + '\t' + overall_minimal_isoforms.Count.ToString());
+            Console.Error.WriteLine("overall" + '\t' + overall_minimal_isoforms.Count.ToString());
 
             HashSet<int> peptide_ids_from_parsimony_isoforms = new HashSet<int>(overall_minimal_isoforms.SelectMany(x => x.Value.Select(y => y.Id)));
             if (!new HashSet<int>(all_peptides.Select(x => x.Id)).SetEquals(peptide_ids_from_parsimony_isoforms))
@@ -202,7 +202,7 @@ namespace MaxQuantAnalyzer2
                     }
                 }
 
-                Console.WriteLine(subset + '\t' + subset_minimal_isoforms.Count.ToString());
+                Console.Error.WriteLine(subset + '\t' + subset_minimal_isoforms.Count.ToString());
 
                 Console.WriteLine(subset);
                 sb = new StringBuilder();
