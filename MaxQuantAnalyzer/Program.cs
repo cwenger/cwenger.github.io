@@ -246,14 +246,11 @@ namespace MaxQuantAnalyzer
 
                                             bool in_subset = false;
                                             foreach (KeyValuePair<string, int> kvp in peptide.Item2)
-                                            {
-                                                if (kvp.Value > 0)
-                                                    if (Array.TrueForAll(subset_components, x => kvp.Value == 0 || kvp.Key.Contains(x)))
-                                                    {
-                                                        in_subset = true;
-                                                        psms += kvp.Value;
-                                                    }
-                                            }
+                                                if (kvp.Value > 0 && Array.TrueForAll(subset_components, x => kvp.Key.Contains(x)))
+                                                {
+                                                    in_subset = true;
+                                                    psms += kvp.Value;
+                                                }
 
                                             if (in_subset)
                                             {
