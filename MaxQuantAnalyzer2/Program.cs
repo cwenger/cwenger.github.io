@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Text.RegularExpressions;
 
 namespace MaxQuantAnalyzer2
@@ -31,7 +30,7 @@ namespace MaxQuantAnalyzer2
                 exclude_nomsms_peptides = false;
 
             List<Peptide> all_peptides = new List<Peptide>();
-            Dictionary<string, List<Peptide>> isoforms = new Dictionary<string, List<Peptide>>();
+            Dictionary<string, List<Peptide>> proteins = new Dictionary<string, List<Peptide>>();
             HashSet<string> subsets = new HashSet<string>();
             using (StreamReader peptides_file = new StreamReader(peptides_filename))
             {
@@ -40,7 +39,7 @@ namespace MaxQuantAnalyzer2
                 int id_index = Array.IndexOf(header_fields, "id");
                 int best_msms_index = Array.IndexOf(header_fields, "Best MS/MS");
                 int score_index = Array.IndexOf(header_fields, "Score");
-                int isoforms_index = Array.IndexOf(header_fields, "isoforms(+)");
+                int proteins_index = Array.IndexOf(header_fields, "Proteins");
                 Dictionary<int, string> experiment_indexes = new Dictionary<int, string>();
                 for (int h = 0; h < header_fields.Length; h++)
                 {
@@ -50,13 +49,13 @@ namespace MaxQuantAnalyzer2
                     {
                         string experiment = header_fields[h].Substring("Experiment ".Length);
                         Match match = EXPERIMENT_MATCH.Match(experiment);
-                        subsets.Add(match.Groups[1].Value);  // only care about cell lines
-                        //subsets.Add(match.Groups[2].Value);
-                        //subsets.Add(match.Groups[3].Value);
-                        //subsets.Add(match.Groups[1].Value + '_' + match.Groups[2].Value);
-                        //subsets.Add(match.Groups[2].Value + '_' + match.Groups[3].Value);
-                        //subsets.Add(match.Groups[1].Value + '_' + match.Groups[3].Value);
-                        //subsets.Add(experiment);
+                        subsets.Add(match.Groups[1].Value);
+                        subsets.Add(match.Groups[2].Value);
+                        subsets.Add(match.Groups[3].Value);
+                        subsets.Add(match.Groups[1].Value + '_' + match.Groups[2].Value);
+                        subsets.Add(match.Groups[2].Value + '_' + match.Groups[3].Value);
+                        subsets.Add(match.Groups[1].Value + '_' + match.Groups[3].Value);
+                        subsets.Add(experiment);
                         experiment_indexes.Add(h, experiment);
                     }
                 }
@@ -66,31 +65,31 @@ namespace MaxQuantAnalyzer2
                     string line = peptides_file.ReadLine();
                     string[] fields = line.Split('\t');
 
-                    if (string.IsNullOrWhiteSpace(fields[isoforms_index]))
+                    if (string.IsNullOrWhiteSpace(fields[proteins_index]))
                         continue;
 
                     if (exclude_nomsms_peptides && string.IsNullOrWhiteSpace(fields[best_msms_index]))
                         continue;
 
-                    HashSet<string> experiments = new HashSet<string>();
+                    Dictionary<string, int> experiments = new Dictionary<string, int>();
                     foreach (KeyValuePair<int, string> kvp in experiment_indexes)
                     {
                         int psms;
                         int.TryParse(fields[kvp.Key], out psms);
                         if (psms > 0)
-                            experiments.Add(kvp.Value);
+                            experiments.Add(kvp.Value, psms);
                     }
 
                     Peptide peptide = new Peptide(int.Parse(fields[id_index]), double.Parse(fields[score_index]), experiments);
                     all_peptides.Add(peptide);
-                    foreach (string isoform in fields[isoforms_index].Split(';'))
+                    foreach (string protein in fields[proteins_index].Split(';'))
                     {
                         List<Peptide> peptides;
-                        if (!isoforms.TryGetValue(isoform, out peptides))
+                        if (!proteins.TryGetValue(protein, out peptides))
                         {
                             peptides = new List<Peptide>();
                             peptides.Add(peptide);
-                            isoforms.Add(isoform, peptides);
+                            proteins.Add(protein, peptides);
                         }
                         else
                             peptides.Add(peptide);
@@ -98,18 +97,14 @@ namespace MaxQuantAnalyzer2
                 }
             }
 
-            List<KeyValuePair<List<string>, List<Peptide>>> overall_minimal_isoforms = FindMinimalProteinGroups(isoforms);
-            Console.Error.WriteLine("overall" + '\t' + overall_minimal_isoforms.Count.ToString());
+            List<KeyValuePair<List<string>, List<Peptide>>> overall_minimal_isoforms = FindMinimalProteinGroups(proteins);
 
             HashSet<int> peptide_ids_from_parsimony_isoforms = new HashSet<int>(overall_minimal_isoforms.SelectMany(x => x.Value.Select(y => y.Id)));
             if (!new HashSet<int>(all_peptides.Select(x => x.Id)).SetEquals(peptide_ids_from_parsimony_isoforms))
                 throw new Exception();
 
-            Console.WriteLine("overall");
-            StringBuilder sb = new StringBuilder();
-            overall_minimal_isoforms.ForEach(x => sb.Append(string.Join("/", x.Key) + ','));
-            sb = sb.Remove(sb.Length - 1, 1);
-            Console.WriteLine(sb.ToString());
+            Console.WriteLine("subset\tPSMs\tdistinct peptides\tprotein groups");
+            Console.WriteLine("{0}\t{1}\t{2}\t{3}", "overall", all_peptides.Sum(x => x.Experiments.Sum(y => y.Value)), all_peptides.Count, overall_minimal_isoforms.Count);
 
             foreach (string subset in subsets)
             {
@@ -118,12 +113,12 @@ namespace MaxQuantAnalyzer2
                 if (ANALYSIS_TYPE == AnalysisType.Independent)
                 {
                     // do an independent minimal isoform group analysis for each subset
-                    List<KeyValuePair<string, List<Peptide>>> subset_isoforms = new List<KeyValuePair<string, List<Peptide>>>(isoforms.Select(x => new KeyValuePair<string, List<Peptide>>(x.Key, new List<Peptide>(x.Value))));
+                    List<KeyValuePair<string, List<Peptide>>> subset_isoforms = new List<KeyValuePair<string, List<Peptide>>>(proteins.Select(x => new KeyValuePair<string, List<Peptide>>(x.Key, new List<Peptide>(x.Value))));
                     string[] subset_components = subset.Split('_');
                     foreach (Peptide peptide in all_peptides)
                     {
                         bool in_subset = false;
-                        foreach (string experiment in peptide.Experiments)
+                        foreach (string experiment in peptide.Experiments.Keys)
                             if (Array.TrueForAll(subset_components, x => experiment.Contains(x)))
                             {
                                 in_subset = true;
@@ -150,7 +145,7 @@ namespace MaxQuantAnalyzer2
                     foreach (Peptide peptide in all_peptides)
                     {
                         bool in_subset = false;
-                        foreach (string experiment in peptide.Experiments)
+                        foreach (string experiment in peptide.Experiments.Keys)
                             if (Array.TrueForAll(subset_components, x => experiment.Contains(x)))
                             {
                                 in_subset = true;
@@ -202,13 +197,23 @@ namespace MaxQuantAnalyzer2
                     }
                 }
 
-                Console.Error.WriteLine(subset + '\t' + subset_minimal_isoforms.Count.ToString());
+                string[] subset_components2 = subset.Split('_');
+                int peptides = 0;
+                int psms = 0;
+                foreach (Peptide peptide in all_peptides)
+                {
+                    bool in_subset = false;
+                    foreach (KeyValuePair<string, int> kvp in peptide.Experiments)
+                        if (Array.TrueForAll(subset_components2, x => kvp.Key.Contains(x)))
+                        {
+                            in_subset = true;
+                            psms += kvp.Value;
+                        }
+                    if (in_subset)
+                        peptides++;
+                }
 
-                Console.WriteLine(subset);
-                sb = new StringBuilder();
-                subset_minimal_isoforms.ForEach(x => sb.Append(string.Join("/", x.Key) + ','));
-                sb = sb.Remove(sb.Length - 1, 1);
-                Console.WriteLine(sb.ToString());
+                Console.WriteLine("{0}\t{1}\t{2}\t{3}", subset, psms, peptides, subset_minimal_isoforms.Count);
             }
         }
 
@@ -289,9 +294,9 @@ namespace MaxQuantAnalyzer2
     {
         public int Id { get; private set; }
         public double Score { get; private set; }
-        public HashSet<string> Experiments { get; private set; }
+        public Dictionary<string, int > Experiments { get; private set; }
 
-        public Peptide(int id, double score, HashSet<string> experiments)
+        public Peptide(int id, double score, Dictionary<string, int> experiments)
         {
             Id = id;
             Score = score;
