@@ -10,8 +10,6 @@ namespace MaxQuantAnalyzer
     {
         static readonly Regex EXPERIMENT_MATCH = new Regex(@"(.+)_(.+)_(.+)");
         static readonly Regex SP_TR_REGEX = new Regex(@"(?:(?:sp|tr)\|(.+)\|)");
-        static readonly Regex TRANSLATION_REGEX = new Regex(@"(.+) (frame:\d+) (ORF:\d+)");
-        static readonly Regex ASSEMBLY_REGEX = new Regex(@"(.+) (\[\d+) - (\d+\])");
         static readonly Regex OTHER_REGEX = new Regex(@"(.+?) ");
 
         static void Main(string[] args)
@@ -19,21 +17,10 @@ namespace MaxQuantAnalyzer
             string proteins_filename = args[0];
             string peptides_filename = args[1];
             string[] protein_sequence_filenames = args[2].Split(';');
-            bool exclude_assembly_range;
-            if (args.Length >= 4)
-                bool.TryParse(args[3], out exclude_assembly_range);
-            else
-                exclude_assembly_range = false;
-            bool exclude_special_proteins;
-            if (args.Length >= 5)
-                bool.TryParse(args[4], out exclude_special_proteins);
-            else
-                exclude_special_proteins = false;
-            bool exclude_nomsms_peptides;
-            if (args.Length >= 6)
-                bool.TryParse(args[5], out exclude_nomsms_peptides);
-            else
-                exclude_nomsms_peptides = false;
+            bool exclude_special_proteins = true;
+            if (args.Length > 3)
+                if (!bool.TryParse(args[3], out exclude_special_proteins))
+                    exclude_special_proteins = true;
 
             // read in peptides.txt and make a list of all the peptides containg the sequence and the number of times it's found in each experiment, keyed by peptide ID
             Dictionary<int, Tuple<string, Dictionary<string, int>>> peptides = new Dictionary<int, Tuple<string, Dictionary<string, int>>>();
@@ -44,7 +31,6 @@ namespace MaxQuantAnalyzer
                 string[] header_fields = header.Split('\t');
                 int id_index = Array.IndexOf(header_fields, "id");
                 int seq_index = Array.IndexOf(header_fields, "Sequence");
-                int best_msms_index = Array.IndexOf(header_fields, "Best MS/MS");
                 Dictionary<int, string> experiment_indexes = new Dictionary<int, string>();
                 for (int h = 0; h < header_fields.Length; h++)
                 {
@@ -69,9 +55,6 @@ namespace MaxQuantAnalyzer
                 {
                     string line = peptides_file.ReadLine();
                     string[] fields = line.Split('\t');
-
-                    if (exclude_nomsms_peptides && string.IsNullOrWhiteSpace(fields[best_msms_index]))
-                        continue;
 
                     Dictionary<string, int> psms_per_exp = new Dictionary<string, int>();
                     foreach (KeyValuePair<int, string> kvp in experiment_indexes)
@@ -105,23 +88,9 @@ namespace MaxQuantAnalyzer
                                     description = sr_tr_match.Groups[1].Value;
                                 else
                                 {
-                                    Match translation_match = TRANSLATION_REGEX.Match(description);
-                                    if (translation_match.Success)
-                                        description = translation_match.Groups[1].Value + translation_match.Groups[2].Value + translation_match.Groups[3].Value;
-                                    else
-                                    {
-                                        Match assembly_match = ASSEMBLY_REGEX.Match(description);
-                                        if (assembly_match.Success)
-                                        {
-                                            description = assembly_match.Groups[1].Value;
-                                            if (!exclude_assembly_range)
-                                                description += assembly_match.Groups[2].Value + '-' + assembly_match.Groups[3].Value;
-                                        }
-
-                                        Match other_match = OTHER_REGEX.Match(description);
-                                        if (other_match.Success)
-                                            description = other_match.Groups[1].Value;
-                                    }
+                                    Match other_match = OTHER_REGEX.Match(description);
+                                    if (other_match.Success)
+                                        description = other_match.Groups[1].Value;
                                 }
                                 protein_sequences.Add(description, sequence);
                                 sequence = null;
@@ -143,19 +112,19 @@ namespace MaxQuantAnalyzer
             using (StreamReader proteins_file = new StreamReader(proteins_filename))
             {
                 // sequence coverage output
-                using (StreamWriter proteins_out_file = new StreamWriter(Path.Combine(Path.GetDirectoryName(proteins_filename), Path.GetFileNameWithoutExtension(proteins_filename) + ".out" + Path.GetExtension(proteins_filename))))
+                using (StreamWriter sequence_coverage_out = new StreamWriter(Path.Combine(Path.GetDirectoryName(proteins_filename), Path.GetFileNameWithoutExtension(proteins_filename) + ".sequence_coverage" + Path.GetExtension(proteins_filename))))
                 {
-                    proteins_out_file.AutoFlush = true;
+                    sequence_coverage_out.AutoFlush = true;
 
                     // PSMs and unique peptide output
-                    using (StreamWriter proteins_out2_file = new StreamWriter(Path.Combine(Path.GetDirectoryName(proteins_filename), Path.GetFileNameWithoutExtension(proteins_filename) + ".out2" + Path.GetExtension(proteins_filename))))
+                    using (StreamWriter PSMs_and_unique_peptides_out = new StreamWriter(Path.Combine(Path.GetDirectoryName(proteins_filename), Path.GetFileNameWithoutExtension(proteins_filename) + ".PSMs_and_unique_peptides" + Path.GetExtension(proteins_filename))))
                     {
-                        proteins_out2_file.AutoFlush = true;
+                        PSMs_and_unique_peptides_out.AutoFlush = true;
 
                         // non-redundant amino acids output
-                        using (StreamWriter proteins_out3_file = new StreamWriter(Path.Combine(Path.GetDirectoryName(proteins_filename), Path.GetFileNameWithoutExtension(proteins_filename) + ".out3" + Path.GetExtension(proteins_filename))))
+                        using (StreamWriter nonredundant_amino_acids_out = new StreamWriter(Path.Combine(Path.GetDirectoryName(proteins_filename), Path.GetFileNameWithoutExtension(proteins_filename) + ".non-redundant_amino_acids" + Path.GetExtension(proteins_filename))))
                         {
-                            proteins_out3_file.AutoFlush = true;
+                            nonredundant_amino_acids_out.AutoFlush = true;
 
                             string header = proteins_file.ReadLine();
                             string[] header_fields = header.Split('\t');
@@ -169,38 +138,38 @@ namespace MaxQuantAnalyzer
                             int reverse_index = Array.IndexOf(header_fields, "Reverse");
                             int contaminant_index = Array.IndexOf(header_fields, "Potential contaminant");
                             Dictionary<string, int> sc_indexes = new Dictionary<string, int>();
-                            StringBuilder sb = new StringBuilder("id\tProtein ID\t");
+                            StringBuilder sequence_coverage_sb = new StringBuilder("id\tProtein ID\t");
                             foreach (string subset in subsets)
                             {
                                 int index = Array.IndexOf(header_fields, "Sequence coverage " + subset + " [%]");
                                 // if MaxQuant reported sequence coverage for this subset, add a column header to the output and save the column index
                                 if (index >= 0)
                                 {
-                                    sb.Append("MaxQuant " + header_fields[index] + '\t');
+                                    sequence_coverage_sb.Append("MaxQuant " + header_fields[index] + '\t');
                                     sc_indexes.Add(subset, index);
                                 }
-                                sb.Append("CDW Sequence coverage " + subset + " [%]\t");
+                                sequence_coverage_sb.Append("Sequence coverage " + subset + " [%]\t");
                             }
-                            sb.Append("MaxQuant Sequence coverage [%]\tCDW Sequence coverage [%]");
-                            proteins_out_file.WriteLine(sb.ToString());
+                            sequence_coverage_sb.Append("MaxQuant Sequence coverage [%]\tSequence coverage [%]");
+                            sequence_coverage_out.WriteLine(sequence_coverage_sb.ToString());
                             Dictionary<string, int> distinct_peptides_indexes = new Dictionary<string, int>();
-                            StringBuilder sb2 = new StringBuilder("id\tProtein ID\t");
+                            StringBuilder PSMs_and_unique_peptides_sb = new StringBuilder("id\tProtein ID\t");
                             foreach (string subset in subsets)
                             {
                                 // MaxQuant never reports a number of PSMs on a per-experiment basis so only output our results
-                                sb2.Append("CDW PSMs " + subset + '\t');
+                                PSMs_and_unique_peptides_sb.Append("PSMs " + subset + '\t');
                                 int index = Array.IndexOf(header_fields, "Peptides " + subset);
                                 // if MaxQuant reported a number of distinct peptides for this subset, add a column header to the output and save the column index
                                 if (index >= 0)
                                 {
-                                    sb2.Append("MaxQuant distinct peptides " + subset + '\t');
+                                    PSMs_and_unique_peptides_sb.Append("MaxQuant unique peptides " + subset + '\t');
                                     distinct_peptides_indexes.Add(subset, index);
                                 }
-                                sb2.Append("CDW distinct peptides " + subset + '\t');
+                                PSMs_and_unique_peptides_sb.Append("Unique peptides " + subset + '\t');
                             }
-                            sb2.Append("MaxQuant PSMs\tCDW PSMs\tMaxQuant distinct peptides\tCDW distinct peptides");
-                            proteins_out2_file.WriteLine(sb2.ToString());
-                            proteins_out3_file.WriteLine("id\tProtein ID\tTrypsin Non-Redundant Amino Acids\tNon-Trypsin Non-Redundant Amino Acids\tTrypsin and Non-Trypsin Non-Redundant Amino Acids\tTotal Non-Redundant Amino Acids");
+                            PSMs_and_unique_peptides_sb.Append("MaxQuant PSMs\tPSMs\tMaxQuant unique peptides\tCDW unique peptides");
+                            PSMs_and_unique_peptides_out.WriteLine(PSMs_and_unique_peptides_sb.ToString());
+                            nonredundant_amino_acids_out.WriteLine("id\tProtein ID\tTrypsin non-redundant amino acids\tNon-trypsin non-redundant amino acids\tTrypsin and non-trypsin non-redundant amino acids\tTotal non-redundant amino acids");
 
                             while (!proteins_file.EndOfStream)
                             {
@@ -222,8 +191,8 @@ namespace MaxQuantAnalyzer
                                     maj_prot_seq = protein_sequences[maj_prot_id];
 
                                 // for each subset of experiments, calculate sequence coverage and number of PSMs and distinct peptides for each protein group
-                                sb = new StringBuilder(fields[id_index] + '\t' + maj_prot_id + '\t');
-                                sb2 = new StringBuilder(fields[id_index] + '\t' + maj_prot_id + '\t');
+                                sequence_coverage_sb = new StringBuilder(fields[id_index] + '\t' + maj_prot_id + '\t');
+                                PSMs_and_unique_peptides_sb = new StringBuilder(fields[id_index] + '\t' + maj_prot_id + '\t');
                                 foreach (string subset in subsets)
                                 {
                                     string[] subset_components = subset.Split('_');
@@ -269,12 +238,12 @@ namespace MaxQuantAnalyzer
                                     }
                                     int index;
                                     if (sc_indexes.TryGetValue(subset, out index))
-                                        sb.Append(fields[index] + '\t');
-                                    sb.Append(seq_cov.ToString("F1") + '\t');
-                                    sb2.Append(psms.ToString() + '\t');
+                                        sequence_coverage_sb.Append(fields[index] + '\t');
+                                    sequence_coverage_sb.Append(seq_cov.ToString("F1") + '\t');
+                                    PSMs_and_unique_peptides_sb.Append(psms.ToString() + '\t');
                                     if (distinct_peptides_indexes.TryGetValue(subset, out index))
-                                        sb2.Append(fields[index] + '\t');
-                                    sb2.Append(distinct_peptides.ToString() + '\t');
+                                        PSMs_and_unique_peptides_sb.Append(fields[index] + '\t');
+                                    PSMs_and_unique_peptides_sb.Append(distinct_peptides.ToString() + '\t');
                                 }
 
                                 // calculate overall sequence coverage, number of PSMs, number of distinct peptides, number of tryptic/non-tryptic/intersection(tryptic, non-tryptic) non-redundant amino acids for each protein group
@@ -327,13 +296,13 @@ namespace MaxQuantAnalyzer
                                     overall_seq_cov = (double)total_residues.Count / length * 100;
                                     overall_distinct_peptides += peptide_ids.Length;
                                 }
-                                sb.Append(fields[seq_cov_index] + '\t' + overall_seq_cov.ToString("F1"));
-                                sb2.Append(fields[evidence_ids_index].Split(';').Length.ToString() + '\t' + overall_psms.ToString() + '\t' + peptide_ids.Length.ToString() + '\t' + overall_distinct_peptides.ToString());
-                                proteins_out_file.WriteLine(sb.ToString());
-                                proteins_out2_file.WriteLine(sb2.ToString());
+                                sequence_coverage_sb.Append(fields[seq_cov_index] + '\t' + overall_seq_cov.ToString("F1"));
+                                PSMs_and_unique_peptides_sb.Append(fields[evidence_ids_index].Split(';').Length.ToString() + '\t' + overall_psms.ToString() + '\t' + peptide_ids.Length.ToString() + '\t' + overall_distinct_peptides.ToString());
+                                sequence_coverage_out.WriteLine(sequence_coverage_sb.ToString());
+                                PSMs_and_unique_peptides_out.WriteLine(PSMs_and_unique_peptides_sb.ToString());
                                 HashSet<int> tryptic_and_non_tryptic_residues = new HashSet<int>(tryptic_residues);
                                 tryptic_and_non_tryptic_residues.IntersectWith(non_tryptic_residues);
-                                proteins_out3_file.WriteLine(fields[id_index] + '\t' + maj_prot_id + '\t' + tryptic_residues.Count.ToString() + '\t' + non_tryptic_residues.Count.ToString() + '\t' + tryptic_and_non_tryptic_residues.Count.ToString() + '\t' + total_residues.Count.ToString());
+                                nonredundant_amino_acids_out.WriteLine(fields[id_index] + '\t' + maj_prot_id + '\t' + tryptic_residues.Count.ToString() + '\t' + non_tryptic_residues.Count.ToString() + '\t' + tryptic_and_non_tryptic_residues.Count.ToString() + '\t' + total_residues.Count.ToString());
                             }
                         }
                     }
