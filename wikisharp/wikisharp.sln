@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.31605.320
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "wikisharp", "wikisharp.csproj", "{A8CFD788-6EB8-470D-96AB-93E4B7542906}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A8CFD788-6EB8-470D-96AB-93E4B7542906}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A8CFD788-6EB8-470D-96AB-93E4B7542906}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A8CFD788-6EB8-470D-96AB-93E4B7542906}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A8CFD788-6EB8-470D-96AB-93E4B7542906}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {F7539DE5-7BC3-468A-BA4E-F3866027AE3B}
+	EndGlobalSection
+EndGlobal
