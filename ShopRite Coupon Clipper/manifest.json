@@ -1,0 +1,14 @@
+{
+  "name": "ShopRite Coupon Clipper",
+  "action": {},
+  "manifest_version": 3,
+  "version": "0.1",
+  "description": "Clips all ShopRite coupons",
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}
